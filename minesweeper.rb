@@ -1,6 +1,7 @@
 #encoding: UTF-8
 require 'gosu'
 require 'matrix'
+require 'date'
 
 class Minesweeper < Gosu::Window
   attr_accessor :rows, :cols
@@ -12,7 +13,7 @@ class Minesweeper < Gosu::Window
   PADDING = 2
   BORDER = 4
   BLOCK_SIZE = TILE_SIZE - PADDING*2 - BORDER*2
-  STATUS_SIZE = 100
+  STATUS_SIZE = TILE_SIZE * 3
 
   EMPTY = 1
   MINE = 2
@@ -23,6 +24,7 @@ class Minesweeper < Gosu::Window
   FLAG_ICON = Gosu::Image.new("./flag.png")
   BOMB_ICON = Gosu::Image.new("./bomb.png")
 
+  STARTING = 0
   PLAYING = 1
   WON = 2
   LOST = 3
@@ -39,13 +41,17 @@ class Minesweeper < Gosu::Window
   }
 
   def initialize
-    @rows = 15 
-    @cols = 15
+    @scores = []
+    @rows = 16 
+    @cols = 16
     @font = Gosu::Font.new(FONT_SIZE, bold: true)
-
     super TILE_SIZE * @cols, TILE_SIZE * @rows + STATUS_SIZE
     self.resizable = true
     self.caption = "Minesweeper"
+    reset_game
+  end
+
+  def reset_game
     @grid = Matrix.build(@rows, @cols) { |r,c| EMPTY }
     @mine_count = 40
     @status = PLAYING
@@ -62,6 +68,8 @@ class Minesweeper < Gosu::Window
     @minecount = Matrix.build(@rows, @cols) { |r,c| count_mines_near(r,c) }
     @first_move = true
     @flag_count = 0
+    @start_time = Time.now.to_i
+    @end_time = nil
   end
 
   def set_flag(r, c, flag)
@@ -83,6 +91,7 @@ class Minesweeper < Gosu::Window
   end
 
   def update
+    return if @status == WON
     # check for victory
     count = 0
     for r in (0...@rows)
@@ -94,6 +103,8 @@ class Minesweeper < Gosu::Window
     end
     if @flag_count == @mine_count && count == (@rows * @cols)
       @status = WON
+      @end_time = Time.now.to_i
+      @scores << {mines: @mine_count, time: @end_time - @start_time, date: Time.now, rows: @rows, cols: @cols}
       reveal_board
     end
   end
@@ -148,6 +159,14 @@ class Minesweeper < Gosu::Window
 
   def button_up(id)
     case id
+    when Gosu::KB_SPACE
+      if [WON, LOST].include?(@status)
+        reset_game
+      end
+    when Gosu::KB_Q
+      if [WON, LOST].include?(@status)
+        self.close!
+      end
     when Gosu::MS_RIGHT
       c = self.mouse_x.to_i / TILE_SIZE
       r = self.mouse_y.to_i / TILE_SIZE
@@ -172,6 +191,7 @@ class Minesweeper < Gosu::Window
           else
             set_flag(r, c, EXPLODED)
             @status = LOST
+            @end_time = Time.now.to_i
             reveal_board
           end
         end
@@ -196,20 +216,31 @@ class Minesweeper < Gosu::Window
     draw_status
   end
 
+  def elapsed_time
+    elapsed = (@end_time || Time.now.to_i) - @start_time
+    sec = elapsed % 60
+    minutes = elapsed / 60
+    sprintf("%02dm %02ds", minutes, sec)
+  end
+
   def draw_status
     case @status
     when PLAYING
-      @font.draw_text_rel("#{@flag_count}/#{@mine_count} mines found",
-        10, @rows * TILE_SIZE + 10, 1,
-        0, 0, 1.0, 1.0, Gosu::Color::WHITE)
+      msg = ["#{@flag_count}/#{@mine_count} mines found"]
+      msg << elapsed_time
     when WON
-      @font.draw_text_rel("YOU WON \u{1F60A}\u{1F60A}\u{1F60A}",
-        10, @rows * TILE_SIZE + 10, 1,
-        0, 0, 1.0, 1.0, Gosu::Color::WHITE)
+      msg = ["YOU WON \u{1F60A}\u{1F60A}\u{1F60A} in #{elapsed_time}",
+             "Press Space to start again",
+             "Press Q to quit"]
     when LOST
-      @font.draw_text_rel("YOU LOST \u{1F635}\u{1F635}\u{1F635}",
-        10, @rows * TILE_SIZE + 10, 1,
-        0, 0, 1.0, 1.0, Gosu::Color::WHITE)
+      msg = ["YOU LOST \u{1F635}\u{1F635}\u{1F635}",
+             "Press Space to start again",
+             "Press Q to quit"]
+    end
+    msg.each_with_index do |str, idx|
+      @font.draw_text_rel(str,
+        @cols * TILE_SIZE / 2, (@rows + idx) * TILE_SIZE, 3,
+        0.5, 0, 1.0, 1.0, Gosu::Color::WHITE)
     end
   end
 
@@ -238,44 +269,44 @@ class Minesweeper < Gosu::Window
       # center
       draw_rect(c * TILE_SIZE + PADDING, r * TILE_SIZE + PADDING,
               BLOCK_SIZE + BORDER*2, BLOCK_SIZE + BORDER*2,
-              color)
+              color, 1)
       if !has_flag(r, c, MINE) && (mc = @minecount[r, c]) > 0
-        @font.draw_text_rel("#{mc}", c * TILE_SIZE + TILE_SIZE/2, r * TILE_SIZE + TILE_SIZE / 2, 1,
+        @font.draw_text_rel("#{mc}", c * TILE_SIZE + TILE_SIZE/2, r * TILE_SIZE + TILE_SIZE / 2, 2,
                             0.5, 0.5, 1.0, 1.0, NUMBER_COLOR[mc] || Gosu::Color::BLACK)
       end
     else
       # center
       draw_rect(c * TILE_SIZE + PADDING + BORDER, r * TILE_SIZE + PADDING + BORDER,
                 BLOCK_SIZE, BLOCK_SIZE,
-                TILE_COLOR)
+                TILE_COLOR, 1)
       # top border
       draw_rect(c * TILE_SIZE + PADDING, r * TILE_SIZE + PADDING,
                 TILE_SIZE - PADDING * 2 - BORDER, BORDER,
-                TILE_ACCENT_LT)
+                TILE_ACCENT_LT, 1)
       draw_triangle(c * TILE_SIZE + PADDING + BORDER + BLOCK_SIZE, r * TILE_SIZE + PADDING, TILE_ACCENT_LT,
                     c * TILE_SIZE + PADDING + BORDER + BLOCK_SIZE + BORDER, r * TILE_SIZE + PADDING, TILE_ACCENT_LT,
-                    c * TILE_SIZE + PADDING + BORDER + BLOCK_SIZE, r * TILE_SIZE + PADDING + BORDER, TILE_ACCENT_LT)
+                    c * TILE_SIZE + PADDING + BORDER + BLOCK_SIZE, r * TILE_SIZE + PADDING + BORDER, TILE_ACCENT_LT, 1)
       # left border
       draw_rect(c * TILE_SIZE + PADDING, r * TILE_SIZE + PADDING + BORDER,
                 BORDER, BLOCK_SIZE,
-                TILE_ACCENT_LT)
+                TILE_ACCENT_LT, 1)
       draw_triangle(c * TILE_SIZE + PADDING, r * TILE_SIZE + PADDING + BORDER + BLOCK_SIZE, TILE_ACCENT_LT,
                     c * TILE_SIZE + PADDING + BORDER, r * TILE_SIZE + PADDING + BORDER + BLOCK_SIZE, TILE_ACCENT_LT,
-                    c * TILE_SIZE + PADDING, r * TILE_SIZE + PADDING + BORDER + BLOCK_SIZE + BORDER, TILE_ACCENT_LT)
+                    c * TILE_SIZE + PADDING, r * TILE_SIZE + PADDING + BORDER + BLOCK_SIZE + BORDER, TILE_ACCENT_LT, 1)
       # bottom border
       draw_rect(c * TILE_SIZE + PADDING + BORDER, r * TILE_SIZE + PADDING + BORDER + BLOCK_SIZE,
                 BLOCK_SIZE + BORDER, BORDER,
-                TILE_ACCENT_DK)
+                TILE_ACCENT_DK, 1)
       draw_triangle(c * TILE_SIZE + PADDING + BORDER, r * TILE_SIZE + PADDING + BORDER + BLOCK_SIZE, TILE_ACCENT_DK,
                     c * TILE_SIZE + PADDING + BORDER, r * TILE_SIZE + PADDING + BORDER + BLOCK_SIZE + BORDER, TILE_ACCENT_DK,
-                    c * TILE_SIZE + PADDING, r * TILE_SIZE + PADDING + BORDER + BLOCK_SIZE + BORDER, TILE_ACCENT_DK)
+                    c * TILE_SIZE + PADDING, r * TILE_SIZE + PADDING + BORDER + BLOCK_SIZE + BORDER, TILE_ACCENT_DK, 1)
       # right border
       draw_rect(c * TILE_SIZE + PADDING + BORDER + BLOCK_SIZE, r * TILE_SIZE + PADDING + BORDER,
                 BORDER, BLOCK_SIZE,
-                TILE_ACCENT_DK)
+                TILE_ACCENT_DK, 1)
       draw_triangle(c * TILE_SIZE + PADDING + BORDER + BLOCK_SIZE, r * TILE_SIZE + PADDING + BORDER, TILE_ACCENT_DK,
                     c * TILE_SIZE + PADDING + BORDER + BLOCK_SIZE + BORDER, r * TILE_SIZE + PADDING + BORDER, TILE_ACCENT_DK,
-                    c * TILE_SIZE + PADDING + BORDER + BLOCK_SIZE + BORDER, r * TILE_SIZE + PADDING, TILE_ACCENT_DK)
+                    c * TILE_SIZE + PADDING + BORDER + BLOCK_SIZE + BORDER, r * TILE_SIZE + PADDING, TILE_ACCENT_DK, 1)
     end
     if has_flag(r, c, FLAGGED)
       FLAG_ICON.draw(c * TILE_SIZE + PADDING + BORDER, r * TILE_SIZE + PADDING + BORDER, 1)
