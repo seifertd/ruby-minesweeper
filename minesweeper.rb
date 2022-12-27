@@ -9,7 +9,6 @@ class Minesweeper < Gosu::Window
   TILE_ACCENT_LT = Gosu::Color.argb(0xffdcdcdc)
   TILE_ACCENT_DK = Gosu::Color.new(0xff666666)
   TILE_SIZE = 40
-  FONT_SIZE = 35
   PADDING = 2
   BORDER = 4
   BLOCK_SIZE = TILE_SIZE - PADDING*2 - BORDER*2
@@ -41,19 +40,82 @@ class Minesweeper < Gosu::Window
   }
 
   def initialize
-    @scores = []
-    @rows = 16 
-    @cols = 16
-    @font = Gosu::Font.new(FONT_SIZE, bold: true)
+    @font_size = 25
+    @text_spacing = TILE_SIZE
+    @text_offset = 1
+    if ARGV.length <= 1
+      difficulty = ARGV[0] || "easy"
+      if difficulty == "hard"
+        @rows = 16
+        @cols = 40
+        @mine_count = 99
+      elsif difficulty == "medium"
+        @rows = 16
+        @cols = 16
+        @mine_count = 40
+      else
+        @rows = 10
+        @cols = 10
+        @mine_count = 10
+        @font_size = 16
+        @text_spacing = 16
+        @text_offset = 3
+      end
+    elsif ARGV.length == 3
+      @rows = ARGV[0].to_i
+      @cols = ARGV[1].to_i
+      @mine_count = ARGV[2].to_i
+      if @cols < 16
+        @font_size = 16
+        @text_spacing = 16
+        @text_offset = 3
+      end
+    end
+
+    load_scores
+
+    @font = Gosu::Font.new(@font_size, bold: true)
+    @small_font = Gosu::Font.new((@font_size * 0.75).to_i)
     super TILE_SIZE * @cols, TILE_SIZE * @rows + STATUS_SIZE
     self.resizable = true
     self.caption = "Minesweeper"
     reset_game
   end
 
+  def save_scores
+    @scores = @scores.sort_by do |score|
+      [-score[:mines], score[:time]]
+    end.take(13)
+    save_file = File.join(Dir.home, ".rbminesweeper")
+    File.open(save_file, "w") do |f|
+      f.puts "mines,time,date,rows,cols"
+      @scores.each do |score|
+        f.puts "#{score[:mines]},#{score[:time]},#{score[:date].to_i},#{score[:rows]},#{score[:cols]}"
+      end
+    end
+  end
+
+  def load_scores
+    @scores = []
+    save_file = File.join(Dir.home, ".rbminesweeper")
+    File.open(save_file, "r") do |f|
+      f.readline # Read and skip header
+      while !f.eof?
+        mines, time, date, rows, cols = f.readline.split(",")
+        @scores << {mines: mines.to_i, time: time.to_i, date: Time.at(date.to_i), rows: rows.to_i, cols: cols.to_i}
+      end
+    end
+  rescue Errno::ENOENT
+    # do nothing, it's ok ...
+  end
+
   def reset_game
     @grid = Matrix.build(@rows, @cols) { |r,c| EMPTY }
-    @mine_count = 40
+    @minecount = Matrix.build(@rows, @cols) { |r,c| 0 }
+    @status = STARTING
+  end
+
+  def start_game
     @status = PLAYING
     @mine_count.times do
       loop do
@@ -105,6 +167,7 @@ class Minesweeper < Gosu::Window
       @status = WON
       @end_time = Time.now.to_i
       @scores << {mines: @mine_count, time: @end_time - @start_time, date: Time.now, rows: @rows, cols: @cols}
+      save_scores
       reveal_board
     end
   end
@@ -162,12 +225,13 @@ class Minesweeper < Gosu::Window
     when Gosu::KB_SPACE
       if [WON, LOST].include?(@status)
         reset_game
+      elsif @status == STARTING
+        start_game
       end
     when Gosu::KB_Q
-      if [WON, LOST].include?(@status)
-        self.close!
-      end
+      self.close!
     when Gosu::MS_RIGHT
+      return if @status != PLAYING
       c = self.mouse_x.to_i / TILE_SIZE
       r = self.mouse_y.to_i / TILE_SIZE
       if c < @cols && r < @rows
@@ -182,6 +246,7 @@ class Minesweeper < Gosu::Window
         @first_move = false
       end
     when Gosu::MS_LEFT
+      return if @status != PLAYING
       c = self.mouse_x.to_i / TILE_SIZE
       r = self.mouse_y.to_i / TILE_SIZE
       if c < @cols && r < @rows
@@ -208,34 +273,68 @@ class Minesweeper < Gosu::Window
   end
   
   def draw
-    @rows.times do |r|
-      @cols.times do |c|
-        draw_block(r, c)
+    if @status == STARTING
+      draw_starting
+    else
+      @rows.times do |r|
+        @cols.times do |c|
+          draw_block(r, c)
+        end
       end
     end
     draw_status
   end
 
-  def elapsed_time
-    elapsed = (@end_time || Time.now.to_i) - @start_time
+  def elapsed_time(start_time, end_time, elapsed = nil)
+    elapsed ||= (end_time || Time.now.to_i) - start_time
     sec = elapsed % 60
     minutes = elapsed / 60
     sprintf("%02dm %02ds", minutes, sec)
   end
 
+  def draw_starting
+    draw_rect(TILE_SIZE - BORDER, TILE_SIZE - BORDER,
+        (@cols - 2) * TILE_SIZE + BORDER*2, (@rows - 2) * TILE_SIZE + BORDER*2,
+        Gosu::Color::CYAN, 1)
+    draw_rect(TILE_SIZE, TILE_SIZE, (@cols - 2) * TILE_SIZE, (@rows - 2) * TILE_SIZE,
+        Gosu::Color::BLACK, 1)
+    draw_rect(TILE_SIZE, 2 * TILE_SIZE - BORDER, (@cols - 2) * TILE_SIZE, BORDER,
+        Gosu::Color::CYAN, 1)
+    @font.draw_text_rel("Leader Board",
+      @cols * TILE_SIZE / 2, TILE_SIZE, 3,
+      0.5, 0, 1.0, 1.0, Gosu::Color::WHITE)
+    msg = []
+    @scores.take(13).each do |score|
+      str = "<c=e0d179>#{score[:date].strftime("%Y-%m-%d %H:%M")}</c>"
+      str << " <c=840000>#{elapsed_time(nil, nil, score[:time])}</c>"
+      str << " <c=008284>Mines: #{score[:mines]}</c>"
+      str << " <c=840084>Size: #{score[:rows]}x#{score[:cols]}</c>"
+      msg << str
+    end
+    msg.each_with_index do |str, idx|
+      @small_font.draw_markup(str,
+        @cols + TILE_SIZE + BORDER, TILE_SIZE + (@text_offset + idx) * @text_spacing + BORDER, 3,
+        1.0, 1.0, Gosu::Color::WHITE)
+    end
+  end
+
   def draw_status
+    msg = []
     case @status
     when PLAYING
-      msg = ["#{@flag_count}/#{@mine_count} mines found"]
-      msg << elapsed_time
+      msg << "#{@flag_count}/#{@mine_count} mines found"
+      msg << elapsed_time(@start_time, @end_time)
     when WON
-      msg = ["YOU WON \u{1F60A}\u{1F60A}\u{1F60A} in #{elapsed_time}",
-             "Press Space to start again",
-             "Press Q to quit"]
+      msg << "YOU WON \u{1F60A}\u{1F60A}\u{1F60A} in #{elapsed_time(@start_time, @end_time)}"
+      msg << "Press Space to continue"
+      msg << "Press Q to quit"
     when LOST
-      msg = ["YOU LOST \u{1F635}\u{1F635}\u{1F635}",
-             "Press Space to start again",
-             "Press Q to quit"]
+      msg << "YOU LOST \u{1F635}\u{1F635}\u{1F635}"
+      msg << "Press Space to continue"
+      msg << "Press Q to quit"
+    when STARTING
+      msg << "Press Space start a new game"
+      msg << "Press Q to quit"
     end
     msg.each_with_index do |str, idx|
       @font.draw_text_rel(str,
