@@ -163,7 +163,7 @@ class Minesweeper < Gosu::Window
         end
       end
     end
-    if @flag_count == @mine_count && count == (@rows * @cols)
+    if @flag_count == @mine_count && count == (@rows * @cols) && @status != LOST
       @status = WON
       @end_time = Time.now.to_i
       @scores << {mines: @mine_count, time: @end_time - @start_time, date: Time.now, rows: @rows, cols: @cols}
