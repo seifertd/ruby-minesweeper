@@ -230,6 +230,7 @@ class Minesweeper < Gosu::Window
       end
     when Gosu::KB_Q
       self.close!
+      exit(0)
     when Gosu::MS_RIGHT
       return if @status != PLAYING
       c = self.mouse_x.to_i / TILE_SIZE

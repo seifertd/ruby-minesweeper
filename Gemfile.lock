@@ -1,13 +1,20 @@
 GEM
   remote: https://rubygems.org/
   specs:
-    gosu (1.4.5)
+    gosu (1.4.6)
+    matrix (0.4.3)
 
 PLATFORMS
+  ruby
   x86_64-linux
 
 DEPENDENCIES
   gosu
+  matrix
+
+CHECKSUMS
+  gosu (1.4.6) sha256=80c7fa48cf61f4960ef067fdd1c000d98b4adc8e11faeaa486543d00908a5c15
+  matrix (0.4.3) sha256=a0d5ab7ddcc1973ff690ab361b67f359acbb16958d1dc072b8b956a286564c5b
 
 BUNDLED WITH
-   2.4.4
+  4.0.7
